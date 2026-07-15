@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -19,7 +20,7 @@ from .models import Alert, HostStatus, UserInfo
 
 logger = logging.getLogger(__name__)
 
-# tbn00–tbn18: skip host-lost / SSH「假死」追踪（弱机或常重启，误报多）
+# tbn00–tbn18: RainaSynth 分布式节点 — 跳过假死/CPU/内存告警（短时 100% 属正常）
 _TBN_HOST_RE = re.compile(r"^tbn(0?[0-9]|1[0-8])$", re.IGNORECASE)
 
 
@@ -57,6 +58,9 @@ def build_alerts(
 
     for h in ok_hosts:
         hostname = h.hostname or h.ip
+        # tbn00–tbn18: RainaSynth 分布式节点，短时打满 CPU 属正常，跳过主机级告警
+        if is_tbn_host(hostname):
+            continue
         suspects = _top_users_on_host(users, hostname)
         suspect_txt = "、".join(suspects) if suspects else "（无明显登录用户）"
 
@@ -104,6 +108,8 @@ def build_alerts(
 
     # Users driving host pressure (even if host average not yet critical)
     for u in users:
+        if is_tbn_host(u.vmName):
+            continue
         if u.cpuUsage >= a.user_cpu_warn:
             alerts.append(
                 Alert(
@@ -247,23 +253,47 @@ class AlertNotifier:
 
         text = self._format_webhook_text(fresh, now)
         try:
+            # sync HTTP — caller should offload to a thread if on asyncio loop
             self._post_webhook(webhook, text, secret=cfg.alerts.dingtalk_secret or "")
             logger.info("sent %d alert(s) to webhook", len(fresh))
         except Exception:  # noqa: BLE001
             logger.exception("webhook notify failed")
 
+    async def persist_and_notify_async(
+        self, cfg: AppConfig, alerts: List[Alert], now: datetime
+    ) -> None:
+        """Write logs synchronously; post webhook off the event loop."""
+        await asyncio.to_thread(self.persist_and_notify, cfg, alerts, now)
+
     @staticmethod
     def _format_webhook_text(alerts: List[Alert], now: datetime) -> str:
-        lines = [
-            f"【Raina 集群预警】{now.strftime('%Y-%m-%d %H:%M:%S')}",
-            "主机资源告急，请 IT 及时提醒对应用户，避免 OOM/SSH 假死：",
-            "",
-        ]
-        for al in alerts[:12]:
-            who = "、".join(al.suspectedUsers) if al.suspectedUsers else "-"
-            lines.append(f"• [{al.level}] {al.message}")
-            if al.suspectedUsers:
-                lines.append(f"  联系: {who}")
+        """DingTalk: machine + host CPU/MEM + users."""
+        by_host: Dict[str, dict] = {}
+        for al in alerts[:20]:
+            host = al.hostname or al.ip or "?"
+            row = by_host.setdefault(host, {"cpu": None, "mem": None, "users": []})
+            if al.kind == "host_cpu":
+                row["cpu"] = al.value
+            elif al.kind == "host_mem":
+                row["mem"] = al.value
+            elif al.kind == "user_cpu" and row["cpu"] is None:
+                row["cpu"] = al.value  # fallback when only user alert
+            elif al.kind == "user_mem" and row["mem"] is None:
+                row["mem"] = al.value
+            for name in al.suspectedUsers or []:
+                if name and name not in row["users"]:
+                    row["users"].append(name)
+
+        lines = [f"【Raina 预警】{now.strftime('%H:%M:%S')}"]
+        for host, row in by_host.items():
+            parts: List[str] = []
+            if row["cpu"] is not None:
+                parts.append(f"CPU {row['cpu']:.0f}%")
+            if row["mem"] is not None:
+                parts.append(f"MEM {row['mem']:.0f}%")
+            usage = " ".join(parts) if parts else "资源告急"
+            who = "、".join(row["users"]) if row["users"] else "-"
+            lines.append(f"{host} {usage} → {who}")
         return "\n".join(lines)
 
     @staticmethod

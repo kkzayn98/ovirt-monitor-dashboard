@@ -37,9 +37,13 @@ dingtalk_secret: "SEC..."
 3. 重启采集服务后，严重告警会 POST 到群（带 timestamp/sign）。同一告警默认 30 分钟冷却。
 4. 日志仍写在 `server/logs/alerts.log` 与 `alerts_it_brief.txt`。
 
-### 1. 启动采集服务
+### 1. 构建前端并启动（推荐，单端口，避免 Vite 代理 502）
 
 ```bash
+export PATH="$PWD/.tools/node/bin:$PATH"   # 若系统 Node 过旧
+npm install
+npm run build
+
 cd server
 python3 -m venv .venv
 source .venv/bin/activate
@@ -47,30 +51,25 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8787
 ```
 
-（默认不用 8000，本机该端口可能已被其他服务占用。）
+服务监听 **`0.0.0.0:8787`**（本机三块网卡均可访问）。出口侧请走 **`192.168.10.78:8787`**，由 `192.168.10.51` 上的 nginx 反代对外；示例配置见 [`deploy/nginx-monitor.conf.example`](deploy/nginx-monitor.conf.example)。
+
+内网直连也可：`http://192.168.15.78:8787` 或 `http://192.168.10.78:8787`。
 
 编辑 [`server/config.yaml`](server/config.yaml) 配置网段与密钥路径。默认扫描 `192.168.15.0/24` 与 `192.168.10.0/24`。
 
-本地 Node：若系统 Node 过旧，可用仓库内 `.tools/node`：
+### 2. 开发模式（可选，Vite :3000）
 
 ```bash
+# 终端 1
+cd server && source .venv/bin/activate
+uvicorn app.main:app --host 0.0.0.0 --port 8787
+
+# 终端 2
 export PATH="$PWD/.tools/node/bin:$PATH"
+npm run dev -- --host 0.0.0.0 --port 3000
 ```
 
-### 2. 启动前端
-
-```bash
-npm install
-npm run dev
-```
-
-访问 http://localhost:3000 。Vite 已将 `/api` 代理到 `http://127.0.0.1:8787`。
-
-演示 Mock（不连后端）：
-
-```bash
-VITE_USE_MOCK=true npm run dev
-```
+访问 http://localhost:3000 。若出现 502，请改用上面的单端口方式（`:8787`）。
 
 ## 项目结构
 

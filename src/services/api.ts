@@ -32,11 +32,22 @@ export interface RefreshMeta {
 }
 
 async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(path);
-  if (!res.ok) {
-    throw new Error(`${path} failed: ${res.status}`);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    const res = await fetch(path, { signal: ctrl.signal });
+    if (!res.ok) {
+      throw new Error(`${path} failed: ${res.status}`);
+    }
+    return res.json() as Promise<T>;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error(`${path} 超时，请稍后重试`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return res.json() as Promise<T>;
 }
 
 function reviveUser(u: User): User {

@@ -35,13 +35,40 @@ const OverviewListModal: React.FC<Props> = ({ kind, onClose }) => {
 
   const filteredUsers = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter(
-      (u) =>
-        u.username.toLowerCase().includes(q) ||
-        u.vmName.toLowerCase().includes(q) ||
-        u.vmIp.toLowerCase().includes(q)
-    );
+    // Dedupe by username: one person may appear on many VMs
+    const byName = new Map<
+      string,
+      { user: User; hosts: string[]; peakCpu: number; peakMem: number }
+    >();
+    for (const u of users) {
+      const prev = byName.get(u.username);
+      if (!prev) {
+        byName.set(u.username, {
+          user: u,
+          hosts: [u.vmName],
+          peakCpu: u.cpuUsage,
+          peakMem: u.memoryUsage,
+        });
+        continue;
+      }
+      if (!prev.hosts.includes(u.vmName)) prev.hosts.push(u.vmName);
+      prev.peakCpu = Math.max(prev.peakCpu, u.cpuUsage);
+      prev.peakMem = Math.max(prev.peakMem, u.memoryUsage);
+      if (u.cpuUsage + u.memoryUsage > prev.user.cpuUsage + prev.user.memoryUsage) {
+        prev.user = u;
+      }
+    }
+    let list = Array.from(byName.values());
+    if (q) {
+      list = list.filter(
+        (row) =>
+          row.user.username.toLowerCase().includes(q) ||
+          row.hosts.some((h) => h.toLowerCase().includes(q)) ||
+          row.user.vmIp.toLowerCase().includes(q)
+      );
+    }
+    list.sort((a, b) => b.peakCpu + b.peakMem - (a.peakCpu + a.peakMem));
+    return list;
   }, [users, query]);
 
   const filteredVms = useMemo(() => {
@@ -82,7 +109,9 @@ const OverviewListModal: React.FC<Props> = ({ kind, onClose }) => {
             </div>
             <div className="min-w-0">
               <h2 className="text-base sm:text-lg font-bold text-slate-200 truncate">{title}</h2>
-              <p className="text-xs text-slate-500 font-mono">{count} 项</p>
+              <p className="text-xs text-slate-500 font-mono">
+                {kind === 'users' ? `${count} 人（按用户名去重）` : `${count} 项`}
+              </p>
             </div>
           </div>
           <button
@@ -111,45 +140,46 @@ const OverviewListModal: React.FC<Props> = ({ kind, onClose }) => {
             (filteredUsers.length === 0 ? (
               <p className="text-center text-slate-500 py-10">暂无在线用户</p>
             ) : (
-              filteredUsers.map((user) => (
+              filteredUsers.map((row) => (
                 <button
-                  key={user.id}
+                  key={row.user.username}
                   type="button"
-                  onClick={() => onPickUser(user)}
+                  onClick={() => onPickUser(row.user)}
                   className="w-full text-left bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 hover:border-blue-500/40 rounded-xl px-3.5 sm:px-4 py-3 transition-colors"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="font-mono font-medium text-slate-200 truncate">
-                        {user.username}
+                        {row.user.username}
                       </div>
                       <div className="text-xs text-slate-500 font-mono truncate mt-0.5">
-                        {user.vmName}
-                        <span className="text-slate-600"> · {user.vmIp}</span>
+                        {row.hosts.length > 1
+                          ? `${row.hosts.length} 台主机：${row.hosts.join('、')}`
+                          : `${row.hosts[0]} · ${row.user.vmIp}`}
                       </div>
                     </div>
                     <div className="flex items-center gap-3 sm:gap-4 shrink-0 text-xs font-mono text-slate-400">
-                      <span className="inline-flex items-center gap-1" title="占主机整体资源比例">
+                      <span className="inline-flex items-center gap-1" title="各主机峰值（占该主机比例）">
                         <Cpu className="w-3.5 h-3.5" />
-                        {user.cpuUsage}%
+                        {row.peakCpu}%
                       </span>
-                      <span className="inline-flex items-center gap-1" title="占主机整体资源比例">
+                      <span className="inline-flex items-center gap-1" title="各主机峰值（占该主机比例）">
                         <Activity className="w-3.5 h-3.5" />
-                        {user.memoryUsage}%
+                        {row.peakMem}%
                       </span>
                     </div>
                   </div>
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
                       <div
-                        className={`h-full ${getBar(user.cpuUsage)}`}
-                        style={{ width: `${Math.min(user.cpuUsage, 100)}%` }}
+                        className={`h-full ${getBar(row.peakCpu)}`}
+                        style={{ width: `${Math.min(row.peakCpu, 100)}%` }}
                       />
                     </div>
                     <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
                       <div
-                        className={`h-full ${getBar(user.memoryUsage)}`}
-                        style={{ width: `${Math.min(user.memoryUsage, 100)}%` }}
+                        className={`h-full ${getBar(row.peakMem)}`}
+                        style={{ width: `${Math.min(row.peakMem, 100)}%` }}
                       />
                     </div>
                   </div>

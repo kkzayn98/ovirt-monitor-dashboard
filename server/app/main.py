@@ -3,10 +3,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from .collector import CollectorService
 from .models import Alert, ClusterStats, HostStatus, ProcessInfo, RefreshMeta, UserInfo
@@ -18,6 +21,9 @@ logging.basicConfig(
 logging.getLogger("asyncssh").setLevel(logging.WARNING)
 
 collector = CollectorService()
+
+# Built frontend: repo/dist  (npm run build)
+DIST_DIR = Path(__file__).resolve().parents[2] / "dist"
 
 
 @asynccontextmanager
@@ -71,7 +77,6 @@ async def host_processes(
 ) -> List[ProcessInfo]:
     procs = collector.get_host_processes(hostname=hostname, vm_ip=vmIp)
     if not procs:
-        # Still ok to return empty if host known; 404 only if unknown
         known = any(
             (h.hostname or "").lower() == hostname.lower() or h.ip == hostname or h.ip == (vmIp or "")
             for h in collector.snapshot.hosts
@@ -103,3 +108,27 @@ async def refresh():
     if not collector.snapshot.meta.refreshing:
         asyncio.create_task(collector.refresh())
     return {"ok": True, "meta": collector.snapshot.meta, "stats": collector.snapshot.stats}
+
+
+# Serve production UI from the same origin as /api (avoids Vite proxy 502)
+if DIST_DIR.is_dir():
+    assets = DIST_DIR / "assets"
+    if assets.is_dir():
+        app.mount("/assets", StaticFiles(directory=str(assets)), name="assets")
+
+    @app.get("/")
+    async def spa_index():
+        return FileResponse(DIST_DIR / "index.html")
+
+    @app.get("/{full_path:path}")
+    async def spa_fallback(full_path: str):
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="not found")
+        candidate = (DIST_DIR / full_path).resolve()
+        try:
+            candidate.relative_to(DIST_DIR.resolve())
+        except ValueError:
+            return FileResponse(DIST_DIR / "index.html")
+        if candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(DIST_DIR / "index.html")

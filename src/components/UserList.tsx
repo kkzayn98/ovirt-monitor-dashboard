@@ -77,7 +77,7 @@ const UsageBar: React.FC<{ value: number; icon: React.ReactNode }> = ({ value, i
 
 const UserList: React.FC = () => {
   const users = useMonitorStore((state) => state.filteredUsers);
-  const allCount = useMonitorStore((state) => state.users.length);
+  const allUsers = useMonitorStore((state) => state.users);
   const selectUser = useMonitorStore((state) => state.selectUser);
   const selectHost = useMonitorStore((state) => state.selectHost);
   const selectedUser = useMonitorStore((state) => state.selectedUser);
@@ -87,14 +87,18 @@ const UserList: React.FC = () => {
   const sortDir = useMonitorStore((s) => s.sortDir);
   const setSort = useMonitorStore((s) => s.setSort);
 
+  const uniqueShown = new Set(users.map((u) => u.username)).size;
+  const uniqueAll = new Set(allUsers.map((u) => u.username)).size;
+
   return (
     <div className="bg-slate-900/50 backdrop-blur-sm rounded-xl border border-slate-700/50 overflow-hidden">
       <div className="p-4 sm:p-6 border-b border-slate-700/50 flex flex-col gap-3 sm:gap-4 sm:flex-row sm:items-center justify-between">
-        <h2 className="text-lg sm:text-xl font-bold text-slate-200 flex items-center gap-2">
+        <h2 className="text-lg sm:text-xl font-bold text-slate-200 flex items-center gap-2 flex-wrap">
           <User className="w-5 h-5 text-blue-400 shrink-0" />
-          在线用户列表
+          用户会话列表
           <span className="text-sm font-normal text-slate-500">
-            ({users.length}{users.length !== allCount ? ` / ${allCount}` : ''})
+            ({uniqueShown} 人 · {users.length} 会话
+            {users.length !== allUsers.length ? ` / 共 ${uniqueAll} 人` : ''})
           </span>
         </h2>
         <div className="flex flex-col gap-2 w-full sm:w-auto sm:items-center sm:flex-row">

@@ -242,7 +242,7 @@ class CollectorService:
         visible_hosts.sort(key=lambda h: (0 if h.status == "ok" else 1, h.hostname or h.ip, h.ip))
 
         stats = ClusterStats(
-            onlineUsers=len(users),
+            onlineUsers=len({u.username for u in users}),
             totalVMs=len(ok_hosts),
             totalCpuUsage=avg_cpu,
             totalMemoryUsage=avg_mem,
@@ -258,7 +258,7 @@ class CollectorService:
             self._prev_ok_keys,
             now,
         )
-        self._notifier.persist_and_notify(self.cfg, alerts, now)
+        await self._notifier.persist_and_notify_async(self.cfg, alerts, now)
 
         # Update previous-ok set for next round "host lost" detection
         # tbn00–tbn18 excluded from 假死追踪
