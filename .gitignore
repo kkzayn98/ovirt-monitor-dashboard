@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.tools/
+server/.venv/
+__pycache__/
+*.pyc
+.env
+.env.local
+*.log
+!server/logs/.gitkeep
+.DS_Store
+server/logs/*
+!server/logs/.gitkeep
+server/secrets.yaml
+server/secrets*.yaml

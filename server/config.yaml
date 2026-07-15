@@ -1,0 +1,60 @@
+ssh_user: kangzijin
+ssh_key: /home/kangzijin/.ssh/id_ed25519
+cidrs:
+  - 192.168.15.0/24
+  - 192.168.10.0/24
+# Explicit hosts (hostname or IP). Merged with CIDR scan.
+# tbn00-tbn18: use root password auth (see auth_profiles + secrets.yaml)
+hosts:
+  - tbn00
+  - tbn01
+  - tbn02
+  - tbn03
+  - tbn04
+  - tbn05
+  - tbn06
+  - tbn07
+  - tbn08
+  - tbn09
+  - tbn10
+  - tbn11
+  - tbn12
+  - tbn13
+  - tbn14
+  - tbn15
+  - tbn16
+  - tbn17
+  - tbn18
+concurrency: 32
+connect_timeout: 5
+command_timeout: 10
+port_probe_timeout: 1.5
+# 全量 SSH 重采间隔；过大屏建议 120s+，避免频繁采集导致机器卡顿
+refresh_interval_seconds: 120
+# Skip these IPs even if in CIDR (e.g. gateway, self)
+exclude_ips:
+  - 192.168.15.1
+  - 192.168.10.1
+# SSH 异常主机 IP 日志（每次全量刷新覆盖写入）
+failed_hosts_log: logs/ssh_failed_hosts.log
+
+# tbn00–tbn18：root + 密码（密码在 secrets.yaml，不入库）
+auth_profiles:
+  - name: tbn-root
+    hostname_regex: '^tbn(0?[0-9]|1[0-8])$'
+    ssh_user: root
+    secret_key: tbn_root_password
+    use_key: false
+
+# 资源预警（避免 CPU/内存打满后 OOM、SSH 假死）
+alerts:
+  cpu_warn: 80
+  cpu_crit: 90
+  mem_warn: 85
+  mem_crit: 92
+  user_cpu_warn: 90
+  user_mem_warn: 90
+  alerts_log: logs/alerts.log
+  # Webhook / 加签密钥请写在 secrets.yaml（dingtalk_webhook_url / dingtalk_secret）
+  webhook_url: ""
+  notify_cooldown_seconds: 1800
